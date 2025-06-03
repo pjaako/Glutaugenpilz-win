@@ -157,7 +157,7 @@ class QuadroDevice:
             self.device = hid.device()
             self.device.open(self.vendor_id, self.product_id)
             self.device.set_nonblocking(1)
-            print("Device opened successfully")
+            print("Quadro device found and opened successfully.")
             print(f"Manufacturer: {self.device.get_manufacturer_string()}")
             print(f"Device name: {self.device.get_product_string()}")
             print(f"Serial number: {self.device.get_serial_number_string()}")

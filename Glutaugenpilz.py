@@ -17,68 +17,107 @@ import os
 import sys
 import subprocess
 import time
+import argparse
 from time import sleep
 from quadro import QuadroManager
 from zenstates import ZenStatesManager
+from prime95 import Prime95Manager
 from elevator import is_admin, elevate
+from csv_logger import CSVLogger
+from messages import display_message, ZENSTATES_INIT_FAILED, PRIME95_INIT_FAILED, CSV_LOGGING_DISABLED, PRIME95_START_FAILED, ADMIN_REQUIRED
+
+def parse_arguments():
+    """Parse command line arguments for Glutaugenpilz."""
+    parser = argparse.ArgumentParser(description="Glutaugenpilz - CPU cooler heat dissipation measurement tool")
+
+    # CSV logging options
+    csv_group = parser.add_argument_group("CSV Logging Options")
+    csv_group.add_argument("--csv-file", type=str, help="CSV file to log data to (default: auto-generated filename)")
+    csv_group.add_argument("--log-interval", type=float, default=1.0, 
+                          help="Interval in seconds between log entries (default: 1.0)")
+    csv_group.add_argument("--no-csv", action="store_true", help="Disable CSV logging")
+
+    return parser.parse_args()
 
 if __name__ == "__main__":
+    # Parse command line arguments
+    args = parse_arguments()
+
     if not is_admin():
-        print("This program requires administrative privileges.")
+        display_message(ADMIN_REQUIRED, is_error=True)
         elevate()
         sys.exit(0)
 
-    # Get temperatures from Quadro device
-    temps = QuadroManager.get_instance().temperatures
-    if None not in temps:
-        print(f"Temps from QuadroManager: {temps}")
+    quadro = QuadroManager.get_instance()
+    #do we really get values from Quadro?
+    if None in quadro.temperatures: quadro=None
+
+    ryzen = ZenStatesManager.get_instance()
+    #do we really get values from ryzen?
+    if ryzen.temperature is None: ryzen=None
+
+    prime95 = Prime95Manager.get_instance()
+    #prime95 functional?
+    if not prime95.is_functional(): prime95=None
+
+
+    logger = CSVLogger(
+        filename=args.csv_file,
+        logging_interval=args.log_interval
+    ) if not args.no_csv else None
+
+    if ryzen is None:
+        display_message(ZENSTATES_INIT_FAILED, is_error=True, exit_after=True)
+
+    if prime95 is None:
+        display_message(PRIME95_INIT_FAILED, is_error=True)
+
+    if logger is None:
+        display_message(CSV_LOGGING_DISABLED)
+
+
+
+    if logger: logger.add_value_source("Tdie", lambda: ryzen.temperature)
+    if logger: logger.add_value_source("Ppkg", lambda: ryzen.total_power)
+    if logger: print (f"Logging to {logger.filename} every {logger.logging_interval} second(s)")
+    input("Press any key to continue...")
+    # Start Prime95 torture test
+    print("Starting Prime95 torture test...")
+    prime95_started = prime95.start_torture_test(test_type="Small FFTs")
+    if prime95_started:
+        print("Prime95 torture test started successfully.")
     else:
-        print("No Quadro device connected")
+        display_message(PRIME95_START_FAILED, is_error=True)
+    input("Press any key to continue...")
 
-    # Get ZenStatesManager instance
-    manager = ZenStatesManager.get_instance()
-
-    # Get current PPT limit
-    ppt = manager.ppt_limit
-    if ppt is not None:
-        print(f"Current PPT limit: {ppt}W")
-    else:
-        print("Error getting PPT limit")
-        sys.exit(1)
-
-    # Set PPT limit to 222W using the property setter
+    # Monitor package power and temperature
     try:
-        manager.ppt_limit = 222
-        print("PPT limit set successfully")
-    except ValueError as e:
-        print(f"Error setting PPT limit: {e}")
-        sys.exit(1)
+        print("\nMonitoring CPU temperature and power...")
 
-    # Monitor package power and current PPT
-    try:
         while True:
-            # Get package power (actual power consumption)
-            power = manager.package_power
+            temp = ryzen.temperature
+            power = ryzen.total_power
 
-            # Get current PPT value (same as package power)
-            current_ppt = manager.current_ppt
+            print(f"Temperature: {temp}°C | Total power: {power}W", end="\r")
 
-            # Get PPT limit
-            ppt_limit = manager.ppt_limit
+            # Log values to CSV file if logging is enabled
+            if logger:
+                logger.log_values()
 
-            if power is not None and current_ppt is not None and ppt_limit is not None:
-                print(f"Package Power: {power}W | Current PPT: {current_ppt}W | PPT Limit: {ppt_limit}W")
-
-                # Calculate percentage of PPT limit being used
-                ppt_usage_percent = (current_ppt / ppt_limit) * 100
-                print(f"PPT Usage: {ppt_usage_percent:.1f}%")
-            else:
-                print("Error getting power values")
-
-
-            sleep(1)
+            sleep(1.1)
     except KeyboardInterrupt:
         print("\nMonitoring stopped by user")
+        # Force one final log entry if logging is enabled
+        if logger:
+            logger.log_values(force=True)
+    finally:
+        # Stop Prime95 torture test
+        if prime95_started:
+            print("Stopping Prime95 torture test...")
+            if prime95.stop_torture_test():
+                print("Prime95 torture test stopped successfully.")
+            else:
+                print("Failed to stop Prime95 torture test. You may need to close it manually.")
 
     # Wait for user input before exiting
     input("Press any key to exit...")

@@ -72,9 +72,8 @@ class PMTableIndices:
     """
     # Power table offsets
     PPT_LIMIT = 2       # Current PPT limit
-    PACKAGE_POWER = 3   # Current PPT value (actual power consumption)
-    TDC = 26            # TDC value
-    EDC = 277           # EDC value
+    TOTAL_POWER = 26   # Current PPT value (actual power consumption)
+
 
 
 class ZenStatesManager:
@@ -250,7 +249,7 @@ class ZenStatesManager:
 
 
     @property
-    def package_power(self) -> Optional[float]:
+    def total_power(self) -> Optional[float]:
         """Get the current package power value (actual power consumption).
 
         Returns:
@@ -258,7 +257,7 @@ class ZenStatesManager:
 
         """
         try:
-            return self.power_management_table[PMTableIndices.PACKAGE_POWER]
+            return self.power_management_table[PMTableIndices.TOTAL_POWER]
         except Exception as e:
             print(f"Error initializing or refreshing data: {e}")
             return None
@@ -326,7 +325,7 @@ if __name__ == "__main__":
 
 
     # Get and print package power
-    package_power = manager.package_power
+    package_power = manager.total_power
     print(f"Package Power: {package_power}W") if package_power is not None else print("Package power not available")
 
     # Set PPT limit using the property setter
